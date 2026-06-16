@@ -12,12 +12,12 @@
       "id": "keyword_splitter",
       "name": "关键词拆分",
       "type": "claude",
-      "prompt": "你是一个资深研究策略专家。收到一个研究主题后，从三个维度进行关键词拆分，确保后续搜索能全方位覆盖该主题。\n\n研究主题: {{ inputs.topic }}\n\n{{#if nodes.review_gate.output}}上一轮未通过的维度: {{ nodes.review_gate.output.rejected }}，请针对这些维度调整关键词{{/if}}\n\n## 三维度分析法\n\n### 1. 学术维度 (academic)\n从学术研究角度提取关键词，关注：核心概念的定义与理论框架、相关学术领域的关键术语、近年的学术热点和前沿方向、代表性学者/实验室/学术机构、重要的论文/综述/会议、方法论和研究范式。\n\n关键词应包含学科术语、理论名称、模型名称等，适合在学术搜索引擎（Google Scholar、arXiv、PubMed 等）中检索。\n\n### 2. 行业维度 (industry)\n从行业应用和产业角度提取关键词，关注：市场格局和主要参与者（公司、产品）、技术成熟度和商业化阶段、行业标准和规范、竞争格局和市场份额、产业链上下游关系、投资和融资动态。\n\n关键词应包含公司名、产品名、技术栈、行业术语等，适合在商业和技术媒体中检索。\n\n### 3. 实践维度 (practice)\n从工程落地和实际操作角度提取关键词，关注：具体实现方案和技术细节、最佳实践和经验总结、常见问题和解决方案、工具链和开发流程、性能指标和基准测试、案例研究和落地经验。\n\n关键词应包含具体技术名词、工具名称、教程/指南类术语等，适合在开发者社区和技术文档中检索。\n\n## 执行步骤\n1. 仔细阅读用户的研究主题\n2. 识别主题涉及的学科领域、行业背景和实践场景\n3. 对每个维度，提炼 3-5 个精准的搜索关键词（附简短的检索目标说明）\n\n## 输出格式\n严格按 JSON 输出：\n{\n  \"topic\": \"原始研究主题\",\n  \"dimensions\": {\n    \"academic\": {\n      \"label\": \"学术方面\",\n      \"keywords\": [{\"query\": \"关键词\", \"goal\": \"该关键词的检索目标\"}],\n      \"summary\": \"一句话概括学术维度的研究方向\"\n    },\n    \"industry\": {\n      \"label\": \"行业方面\",\n      \"keywords\": [{\"query\": \"关键词\", \"goal\": \"该关键词的检索目标\"}],\n      \"summary\": \"一句话概括行业维度的研究方向\"\n    },\n    \"practice\": {\n      \"label\": \"实践方面\",\n      \"keywords\": [{\"query\": \"关键词\", \"goal\": \"该关键词的检索目标\"}],\n      \"summary\": \"一句话概括实践维度的研究方向\"\n    }\n  }\n}\n\n注意：三个维度的关键词应有明显区分度，不要重叠。关键词要具体、可检索，避免过于宽泛或模糊。",
+      "prompt": "你是一个资深研究策略专家。收到一个研究主题后，请采用 `skill:keyword_splitter` 从三个维度进行关键词拆分，确保后续搜索能全方位覆盖该主题。",
       "tools": {
         "allowed": ["Read", "Grep"],
         "disallowed": ["Write", "Edit", "Bash", "WebSearch", "WebFetch"]
       },
-      "model": "sonnet",
+      "model": "deepseek-v4-flash",
       "output": {
         "type": "object",
         "properties": {
@@ -64,12 +64,12 @@
       "id": "academic_research",
       "name": "学术维度研究",
       "type": "claude",
-      "prompt": "你是一个学术研究专家。请按学术维度进行深度研究并生成报告。\n\n研究主题: {{ inputs.topic }}\n学术维度关键词: {{ nodes.keyword_splitter.output.dimensions.academic }}\n\n{{#if nodes.review_academic.output}}人类审核反馈（上一轮未通过）: {{ nodes.review_academic.output.feedback }}{{/if}}\n\n## Phase A — Search Pipeline\n\n### Step 1: 构造查询\n根据关键词构造 2-3 组递进检索查询：\n- 第 1 轮（广域扫描）: 关键词 + \"survey OR review site:arxiv.org\"\n- 第 2 轮（聚焦深挖）: 关键词 + 具体方法 + 2024/2025 + \"site:arxiv.org OR site:openreview.net\"\n- 第 3 轮（交叉验证）: 关键词 + \"benchmark OR evaluation OR empirical study\"\n\n### Step 2: 执行多轮检索\n```bash\nmkdir -p academic_out\npython .wflow/scripts/tavily-search.py -n 10 -d advanced \"<query1>\" > academic_out/raw_r1.json\npython .wflow/scripts/tavily-search.py -n 10 -d advanced \"<query2>\" > academic_out/raw_r2.json\npython .wflow/scripts/tavily-search.py -n 10 -d advanced \"<query3>\" > academic_out/raw_r3.json\n```\n\n### Step 3: 合并去重\n```bash\npython .wflow/scripts/dedup_db.py merge -q \"<query1>\" \"<query2>\" \"<query3>\" academic_out/raw_r1.json academic_out/raw_r2.json academic_out/raw_r3.json | python .wflow/scripts/dedup_db.py filter --skill academic -i - -o academic_out/deduped.json\n```\n\n## Phase B — Analysis\n\n### Step 4: 相关性筛选\n阅读 academic_out/deduped.json，逐条判断保留/丢弃，写入 academic_out/result.json。筛选原则：保留学术源(arxiv/会议/期刊)、直接相关、含方法/实验数据；移除纯新闻、仅提及关键字、3年前且无后续引用。\n\n### Step 5: 撰写报告\n基于 result.json 撰写 academic_out/academic_report.md：\n- 检索概览（主题/日期/来源分布）\n- 核心发现（3-5 条）\n- 论文综述（按方向分组，含核心贡献/方法/结果/局限）\n- 研究趋势与流派\n- 方法论对比表\n- 建议阅读清单\n- 参考来源\n\n## Phase C — Persist\n```bash\npython .wflow/scripts/dedup_db.py add --skill academic -i academic_out/result.json -p\nrm -f academic_out/raw_r*.json academic_out/deduped.json\n```\n\n输出 report_path 和 report_summary。输出语言: {{ inputs.language }}。",
+      "prompt": "你是一个学术研究专家。请按学术维度进行深度研究并生成报告。请基于上游节点输出的 academic 维度关键词，采用 `skill:academic_research` 进行检索和分析。",
       "tools": {
-        "allowed": ["Read", "Write", "Edit", "Bash", "WebSearch", "WebFetch", "Grep"],
-        "disallowed": []
+        "allowed": ["Read", "Write", "Edit", "Bash", "WebFetch", "Grep"],
+        "disallowed": ["WebSearch"]
       },
-      "model": "sonnet",
+      "model": "deepseek-v4-flash",
       "output": {
         "type": "object",
         "properties": {
@@ -86,12 +86,12 @@
       "id": "industry_research",
       "name": "行业维度研究",
       "type": "claude",
-      "prompt": "你是一个行业研究专家。请按行业维度进行深度研究并生成报告。\n\n研究主题: {{ inputs.topic }}\n行业维度关键词: {{ nodes.keyword_splitter.output.dimensions.industry }}\n\n{{#if nodes.review_industry.output}}人类审核反馈（上一轮未通过）: {{ nodes.review_industry.output.feedback }}{{/if}}\n\n## Phase A — Search Pipeline\n\n### Step 1: 构造查询\n根据关键词构造 2-3 组递进检索查询：\n- 第 1 轮（市场概览）: 关键词 + \"market size forecast 2024 2025\"\n- 第 2 轮（企业实践）: 关键词 + \"enterprise deployment production case study\"\n- 第 3 轮（竞争/趋势）: 关键词 + \"vendor comparison OR trends 2025\"\n域偏好: site:gartner.com | site:mckinsey.com | site:idc.com | site:forrester.com | site:techcrunch.com | site:36kr.com | site:infoq.com\n\n### Step 2: 执行多轮检索\n```bash\nmkdir -p industry_out\npython .wflow/scripts/tavily-search.py -n 10 -d advanced \"<query1>\" > industry_out/raw_r1.json\npython .wflow/scripts/tavily-search.py -n 10 -d advanced \"<query2>\" > industry_out/raw_r2.json\npython .wflow/scripts/tavily-search.py -n 10 -d advanced \"<query3>\" > industry_out/raw_r3.json\n```\n\n### Step 3: 合并去重\n```bash\npython .wflow/scripts/dedup_db.py merge -q \"<query1>\" \"<query2>\" \"<query3>\" industry_out/raw_r1.json industry_out/raw_r2.json industry_out/raw_r3.json | python .wflow/scripts/dedup_db.py filter --skill industry -i - -o industry_out/deduped.json\n```\n\n## Phase B — Analysis\n\n### Step 4: 相关性筛选\n阅读 industry_out/deduped.json，逐条判断保留/丢弃，写入 industry_out/result.json。筛选原则：保留分析机构报告、厂商技术实践、量化数据、时效性高(6个月内)；移除纯产品广告、不可靠来源。可信度注意：厂商博客可信度中，Gartner/IDC/麦肯锡等第三方可信度高。\n\n### Step 5: 撰写报告\n基于 result.json 撰写 industry_out/industry_report.md：\n- 检索概览（主题/日期/来源类型分布）\n- 核心发现（3-5 条关键洞察）\n- 市场概览（规模/增长率/驱动因素）\n- 企业实践案例（企业/场景/方案/效果/可信度）\n- 竞争格局（厂商/定位/优势/劣势）\n- 趋势研判（短中期）\n- 风险与挑战\n- 参考来源\n\n## Phase C — Persist\n```bash\npython .wflow/scripts/dedup_db.py add --skill industry -i industry_out/result.json -p\nrm -f industry_out/raw_r*.json industry_out/deduped.json\n```\n\n输出 report_path 和 report_summary。输出语言: {{ inputs.language }}。",
+      "prompt": "你是一个行业研究专家。请按行业维度进行深度研究并生成报告。请基于上游节点输出的 industry 维度关键词，采用 `skill:industry_research` 进行检索和分析。",
       "tools": {
-        "allowed": ["Read", "Write", "Edit", "Bash", "WebSearch", "WebFetch", "Grep"],
-        "disallowed": []
+        "allowed": ["Read", "Write", "Edit", "Bash", "WebFetch", "Grep"],
+        "disallowed": ["WebSearch"]
       },
-      "model": "sonnet",
+      "model": "deepseek-v4-flash",
       "output": {
         "type": "object",
         "properties": {
@@ -108,12 +108,12 @@
       "id": "practical_research",
       "name": "实践维度研究",
       "type": "claude",
-      "prompt": "你是一个实践技术研究专家。请按实践维度进行深度研究并生成报告。\n\n研究主题: {{ inputs.topic }}\n实践维度关键词: {{ nodes.keyword_splitter.output.dimensions.practice }}\n\n{{#if nodes.review_practical.output}}人类审核反馈（上一轮未通过）: {{ nodes.review_practical.output.feedback }}{{/if}}\n\n## Phase A — Search Pipeline\n\n### Step 1: 构造查询\n根据关键词构造 2-3 组递进检索查询：\n- 第 1 轮（工具发现）: 关键词 + \"tool OR framework OR library open source site:github.com\"\n- 第 2 轮（教程/实践）: 关键词 + \"tutorial getting started best practices\"\n- 第 3 轮（对比/选型）: \"toolA vs toolB comparison benchmark 2024\"\n域偏好: site:github.com | site:stackoverflow.com | site:pypi.org | site:npmjs.com | site:medium.com | site:dev.to\n\n### Step 2: 执行多轮检索\n```bash\nmkdir -p practical_out\npython .wflow/scripts/tavily-search.py -n 10 -d advanced \"<query1>\" > practical_out/raw_r1.json\npython .wflow/scripts/tavily-search.py -n 10 -d advanced \"<query2>\" > practical_out/raw_r2.json\npython .wflow/scripts/tavily-search.py -n 10 -d advanced \"<query3>\" > practical_out/raw_r3.json\n```\n\n### Step 3: 合并去重\n```bash\npython .wflow/scripts/dedup_db.py merge -q \"<query1>\" \"<query2>\" \"<query3>\" practical_out/raw_r1.json practical_out/raw_r2.json practical_out/raw_r3.json | python .wflow/scripts/dedup_db.py filter --skill practical -i - -o practical_out/deduped.json\n```\n\n## Phase B — Analysis\n\n### Step 4: 相关性筛选\n阅读 practical_out/deduped.json，逐条判断保留/丢弃，写入 practical_out/result.json。筛选原则：保留含可执行代码/命令/教程、项目活跃(近6个月维护)、有文档；移除已归档/废弃项目、仅有概念无实操、过时教程。验证清单：项目是否近6个月更新？依赖兼容性？许可证允许？有完整文档？\n\n### Step 5: 撰写报告\n基于 result.json 撰写 practical_out/practical_report.md：\n- 检索概览（主题/日期/来源类型分布）\n- 核心发现（3-5 条可落地结论）\n- 工具/项目推荐（每工具含 Stars/License/最近更新/核心功能/上手难度/推荐理由/注意事项）\n- 技术栈选型指南（含推荐度评分）\n- 教程与实践（入门→进阶→生产部署）\n- 快速上手路线\n- 参考来源\n\n## Phase C — Persist\n```bash\npython .wflow/scripts/dedup_db.py add --skill practical -i practical_out/result.json -p\nrm -f practical_out/raw_r*.json practical_out/deduped.json\n```\n\n输出 report_path 和 report_summary。输出语言: {{ inputs.language }}。",
+      "prompt": "你是一个实践技术研究专家。请按实践维度进行深度研究并生成报告。请基于上游节点输出的 practice 维度关键词，采用 `skill:practice_research` 进行检索和分析。",
       "tools": {
-        "allowed": ["Read", "Write", "Edit", "Bash", "WebSearch", "WebFetch", "Grep"],
-        "disallowed": []
+        "allowed": ["Read", "Write", "Edit", "Bash", "WebFetch", "Grep"],
+        "disallowed": ["WebSearch"]
       },
-      "model": "sonnet",
+      "model": "deepseek-v4-flash",
       "output": {
         "type": "object",
         "properties": {
@@ -169,33 +169,10 @@
       }
     },
     {
-      "id": "review_gate",
-      "name": "审核汇聚判定",
-      "type": "script",
-      "command": "python -c \"import json,sys;d=json.load(sys.stdin);src=d.get('upstream',d) if 'upstream' in d else d;src=src.get('nodes',src) if 'nodes' in src else src;ra=src.get('review_academic',{});ra=ra.get('output',ra) if 'output' in ra else ra;ri=src.get('review_industry',{});ri=ri.get('output',ri) if 'output' in ri else ri;rp=src.get('review_practical',{});rp=rp.get('output',rp) if 'output' in rp else rp;all_ok=bool(ra.get('approved')) and bool(ri.get('approved')) and bool(rp.get('approved'));rejected=[k for k,v in [('academic',ra),('industry',ri),('practical',rp)] if not v.get('approved')];print(json.dumps({'all_approved':all_ok,'rejected':rejected,'reviews':{'academic':ra,'industry':ri,'practical':rp}},ensure_ascii=False))\"",
-      "timeout_seconds": 30,
-      "output": {
-        "type": "object",
-        "properties": {
-          "all_approved": { "type": "boolean", "description": "三个维度是否全部通过" },
-          "rejected": { "type": "array", "items": { "type": "string" }, "description": "未通过的维度列表" },
-          "reviews": {
-            "type": "object",
-            "properties": {
-              "academic": { "type": "object" },
-              "industry": { "type": "object" },
-              "practical": { "type": "object" }
-            }
-          }
-        },
-        "required": ["all_approved", "rejected"]
-      }
-    },
-    {
       "id": "synthesize",
       "name": "综合归纳报告",
       "type": "claude",
-      "prompt": "你是一个资深技术报告总结专家。三个维度的研究报告已全部通过审核，请将所有研究成果归纳为一份综合报告，保存到 result/ 目录下。\n\n研究主题: {{ inputs.topic }}\n\n学术研究报告: {{ nodes.academic_research.output }}\n行业研究报告: {{ nodes.industry_research.output }}\n实践研究报告: {{ nodes.practical_research.output }}\n\n审核状态: {{ nodes.review_gate.output }}\n\n## 任务\n\n1. 读取三份研究报告的完整内容（使用 Read 工具读取 report_path 指向的文件）\n2. 撰写综合报告 result/{topic_slug}_research_report.md，包含：\n   - 封面信息（主题、日期、研究范围）\n   - 执行摘要（200-300 字，综合三个维度的核心发现）\n   - 学术前沿（来自学术研究报告的提炼，突出关键论文和方法论）\n   - 行业洞察（来自行业研究报告的提炼，突出市场格局和趋势）\n   - 实践指南（来自实践研究报告的提炼，突出工具选型和上手路线）\n   - 交叉洞察（三个维度互相印证的发现和矛盾点）\n   - 综合建议（面向不同角色的行动建议：研究员/技术决策者/开发者）\n   - 参考来源汇总\n\n3. 确保目录存在：\n```bash\nmkdir -p result\n```\n\n4. 将综合报告写入文件，确认文件成功保存\n\n输出 report_path（综合报告路径）和 summary（综合摘要）。输出语言: {{ inputs.language }}。",
+      "prompt": "你是一个资深技术报告总结专家。三个维度的研究报告已全部通过审核，请采用 `skill:synthesize` 将所有研究成果归纳为一份综合报告。输出语言: {{ inputs.language }}。",
       "tools": {
         "allowed": ["Read", "Write", "Edit", "Bash", "Grep"],
         "disallowed": ["WebSearch", "WebFetch"]
@@ -220,13 +197,12 @@
     { "id": "e4",  "from": "academic_research",  "to": "review_academic" },
     { "id": "e5",  "from": "industry_research",  "to": "review_industry" },
     { "id": "e6",  "from": "practical_research", "to": "review_practical" },
-    { "id": "e7",  "from": "review_academic",    "to": "review_gate" },
-    { "id": "e8",  "from": "review_industry",    "to": "review_gate" },
-    { "id": "e9",  "from": "review_practical",   "to": "review_gate" },
-    { "id": "e10", "from": "review_gate", "to": "synthesize",         "condition": "{{ nodes.review_gate.output.all_approved }} == true" },
-    { "id": "e11", "from": "review_gate", "to": "academic_research",  "condition": "{{ nodes.review_academic.output.approved }} == false" },
-    { "id": "e12", "from": "review_gate", "to": "industry_research",  "condition": "{{ nodes.review_industry.output.approved }} == false" },
-    { "id": "e13", "from": "review_gate", "to": "practical_research", "condition": "{{ nodes.review_practical.output.approved }} == false" },
+    { "id": "e7",  "from": "review_academic",    "to": "academic_research", "condition": "{{ nodes.review_academic.output.approved }} == false" },
+    { "id": "e8",  "from": "review_industry",    "to": "industry_research", "condition": "{{ nodes.review_industry.output.approved }} == false" },
+    { "id": "e9",  "from": "review_practical",   "to": "practical_research", "condition": "{{ nodes.review_practical.output.approved }} == false" },
+    { "id": "e10", "from": "review_academic", "to": "synthesize",  "condition": "{{ nodes.review_academic.output.approved }} == true" },
+    { "id": "e11", "from": "review_industry", "to": "synthesize",  "condition": "{{ nodes.review_industry.output.approved }} == true" },
+    { "id": "e12", "from": "review_practical", "to": "synthesize", "condition": "{{ nodes.review_practical.output.approved }} == true" },
     { "id": "e14", "from": "synthesize",  "to": null }
   ],
   "inputs": {
