@@ -177,7 +177,7 @@
         "allowed": ["Read", "Write", "Edit", "Bash", "Grep"],
         "disallowed": ["WebSearch", "WebFetch"]
       },
-      "model": "sonnet",
+      "model": "deepseek-v4-pro",
       "output": {
         "type": "object",
         "properties": {
@@ -187,7 +187,7 @@
         },
         "required": ["report_path", "summary"]
       },
-      "retry": { "max_retries": 1, "retry_delay_seconds": 30, "timeout_seconds": 900 }
+      "retry": { "max_retries": 3, "retry_delay_seconds": 30, "timeout_seconds": 900 }
     }
   ],
   "edges": [
